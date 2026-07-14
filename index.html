@@ -320,6 +320,23 @@
   }
   label{display:block;font-size:.82rem;color:var(--ink-soft);margin-bottom:6px;}
 
+  .estimate-btn{
+    margin-left:8px;
+    color:var(--ok);
+  }
+  .estimate-btn:hover{background:rgba(0,186,124,.1);border-color:var(--ok);}
+  .estimate-hint{font-size:.72rem;color:var(--ink-soft);margin-top:8px;}
+
+  .pref-note{
+    font-size:.74rem;
+    color:var(--ink-soft);
+    margin-top:8px;
+    padding:10px 12px;
+    background:var(--card-elevated);
+    border-radius:8px;
+  }
+  .pref-note b{color:var(--ink);}
+
   button.calc{
     width:100%;
     background:var(--indigo);
@@ -475,6 +492,8 @@
           </table>
         </div>
         <button class="add-btn" onclick="addIncomeRow()">＋ 収入源を追加</button>
+        <button class="add-btn estimate-btn" onclick="estimateRemainingMonths()">📈 入力済みの月から12月までを推定して算出</button>
+        <div class="estimate-hint">各収入源で「金額が入っている月」の平均値を、まだ空欄の月にあてはめてから自動で算出します。</div>
 
         <div class="grand-total">
           <span class="gt-label">年間収入 合計</span>
@@ -523,8 +542,13 @@
     <article class="post" id="section-run">
       <div class="post-avatar">🧮</div>
       <div class="post-body">
-        <div class="post-title">働き方 と 算出</div>
-        <label for="employType">働き方</label>
+        <div class="post-title">お住まいの地域・働き方 と 算出</div>
+
+        <label for="prefecture">お住まいの都道府県</label>
+        <select id="prefecture" onchange="updatePrefectureNote()"></select>
+        <div class="pref-note" id="prefectureNote"></div>
+
+        <label for="employType" style="margin-top:16px;">働き方</label>
         <select id="employType">
           <option value="employee">会社員・公務員(厚生年金・健康保険に加入)</option>
           <option value="selfemployed">自営業・フリーランス(国民年金・国民健康保険)</option>
@@ -602,6 +626,68 @@ function yen(n){
   return Math.round(n).toLocaleString("ja-JP") + " 円";
 }
 
+/* =========================================================
+   都道府県別 住民税データ(概算)
+   ・全国標準: 均等割 5,000円/年(道府県民税1,000円+市町村民税3,000円+森林環境税[国税]1,000円)
+              所得割 10%(道府県4%+市町村6%)
+   ・一部の都道府県では、森林保全等を目的とした条例による「超過課税」が上乗せされる
+     (総務省・各都道府県公表資料に基づく概算値。確定額は毎年見直される場合があります)
+   ・多くの府県では上乗せの有無・金額を本ツールでは確認できていないため 0円(標準)とし、
+     ユーザー自身が知っている金額があれば下欄で上書きできるようにしています
+   ========================================================= */
+const STANDARD_EQUAL_LEVY = 5_000;   // 全国標準の均等割(森林環境税を含む)
+const STANDARD_INCOME_RATE = 0.10;   // 全国標準の所得割率
+
+const PREFECTURE_TAX_DATA = {
+  "北海道": {surchargeFlat:0, confirmed:false}, "青森県": {surchargeFlat:0, confirmed:false},
+  "岩手県": {surchargeFlat:0, confirmed:false}, "宮城県": {surchargeFlat:1200, confirmed:true, note:"みやぎ環境税"},
+  "秋田県": {surchargeFlat:0, confirmed:false}, "山形県": {surchargeFlat:0, confirmed:false},
+  "福島県": {surchargeFlat:0, confirmed:false}, "茨城県": {surchargeFlat:0, confirmed:false},
+  "栃木県": {surchargeFlat:0, confirmed:false}, "群馬県": {surchargeFlat:0, confirmed:false},
+  "埼玉県": {surchargeFlat:0, confirmed:true, note:"超過課税なし(標準)"},
+  "千葉県": {surchargeFlat:0, confirmed:false},
+  "東京都": {surchargeFlat:0, confirmed:true, note:"超過課税なし(標準)"},
+  "神奈川県": {surchargeFlat:300, surchargeRate:0.00025, confirmed:true, note:"水源環境保全税"},
+  "新潟県": {surchargeFlat:0, confirmed:false}, "富山県": {surchargeFlat:0, confirmed:false},
+  "石川県": {surchargeFlat:0, confirmed:false}, "福井県": {surchargeFlat:0, confirmed:false},
+  "山梨県": {surchargeFlat:0, confirmed:false}, "長野県": {surchargeFlat:0, confirmed:false},
+  "岐阜県": {surchargeFlat:0, confirmed:false}, "静岡県": {surchargeFlat:0, confirmed:false},
+  "愛知県": {surchargeFlat:0, confirmed:true, note:"超過課税なし(標準)"},
+  "三重県": {surchargeFlat:0, confirmed:false}, "滋賀県": {surchargeFlat:0, confirmed:false},
+  "京都府": {surchargeFlat:0, confirmed:false},
+  "大阪府": {surchargeFlat:0, confirmed:true, note:"超過課税なし(標準)"},
+  "兵庫県": {surchargeFlat:0, confirmed:false}, "奈良県": {surchargeFlat:0, confirmed:false},
+  "和歌山県": {surchargeFlat:0, confirmed:false}, "鳥取県": {surchargeFlat:0, confirmed:false},
+  "島根県": {surchargeFlat:0, confirmed:false}, "岡山県": {surchargeFlat:0, confirmed:false},
+  "広島県": {surchargeFlat:0, confirmed:false}, "山口県": {surchargeFlat:0, confirmed:false},
+  "徳島県": {surchargeFlat:0, confirmed:false}, "香川県": {surchargeFlat:0, confirmed:false},
+  "愛媛県": {surchargeFlat:0, confirmed:false}, "高知県": {surchargeFlat:0, confirmed:false},
+  "福岡県": {surchargeFlat:0, confirmed:false}, "佐賀県": {surchargeFlat:0, confirmed:false},
+  "長崎県": {surchargeFlat:0, confirmed:false}, "熊本県": {surchargeFlat:0, confirmed:false},
+  "大分県": {surchargeFlat:0, confirmed:false}, "宮崎県": {surchargeFlat:0, confirmed:false},
+  "鹿児島県": {surchargeFlat:0, confirmed:false}, "沖縄県": {surchargeFlat:0, confirmed:false},
+};
+
+function populatePrefectureSelect(){
+  const sel = document.getElementById("prefecture");
+  if(!sel) return;
+  sel.innerHTML = Object.keys(PREFECTURE_TAX_DATA).map(name => `<option value="${name}">${name}</option>`).join("");
+  sel.value = "東京都";
+  updatePrefectureNote();
+}
+function updatePrefectureNote(){
+  const sel = document.getElementById("prefecture");
+  const note = document.getElementById("prefectureNote");
+  if(!sel || !note) return;
+  const data = PREFECTURE_TAX_DATA[sel.value] || {surchargeFlat:0, confirmed:false};
+  const equalLevy = STANDARD_EQUAL_LEVY + (data.surchargeFlat || 0);
+  if(data.confirmed){
+    note.innerHTML = `均等割の目安: <b>${yen(equalLevy)}/年</b>(全国標準5,000円 ${data.surchargeFlat > 0 ? '+ 超過課税 ' + yen(data.surchargeFlat) + '(' + data.note + ')' : '・' + data.note})`;
+  }else{
+    note.innerHTML = `均等割の目安: <b>${yen(equalLevy)}/年</b>(全国標準を適用。この都道府県独自の超過課税の有無は本ツールでは未確認です。全国28府県で年300〜1,200円程度の上乗せがある場合があるため、正確な金額はお住まいの自治体にご確認ください)`;
+  }
+}
+
 /* ===== 収入テーブル ===== */
 function addIncomeRow(name = ""){
   incomeRows.push({ id: incomeIdSeq++, name, months: Array(12).fill("") });
@@ -611,6 +697,17 @@ function removeIncomeRow(id){
   incomeRows = incomeRows.filter(r => r.id !== id);
   if(incomeRows.length === 0) addIncomeRow();
   renderIncomeTable();
+}
+function estimateRemainingMonths(){
+  incomeRows.forEach(row => {
+    const filled = row.months.map(v => Number(v) || 0).filter((v, i) => row.months[i] !== "" && Number(row.months[i]) > 0);
+    if(filled.length === 0) return; // この収入源はまだ何も入力されていない
+    const avg = Math.round(filled.reduce((s, v) => s + v, 0) / filled.length);
+    row.months = row.months.map(v => (v === "" || v === null) ? String(avg) : v);
+  });
+  renderIncomeTable();
+  calculate();
+  document.getElementById("section-result").scrollIntoView({behavior:"smooth"});
 }
 function renderIncomeTable(){
   const body = document.getElementById("incomeBody");
@@ -813,9 +910,11 @@ function socialInsuranceSelfEmployed(income){
   const nationalHealth = Math.min(income * 0.10, 1_060_000);
   return nationalPension + nationalHealth;
 }
-function residenceTax(taxableIncomeForResidence){
-  const flatRate = 5_000;
-  const incomeRate = Math.max(0, taxableIncomeForResidence) * 0.10;
+function residenceTax(taxableIncomeForResidence, prefectureName){
+  const data = PREFECTURE_TAX_DATA[prefectureName] || {surchargeFlat:0, surchargeRate:0};
+  const flatRate = STANDARD_EQUAL_LEVY + (data.surchargeFlat || 0);
+  const rate = STANDARD_INCOME_RATE + (data.surchargeRate || 0);
+  const incomeRate = Math.max(0, taxableIncomeForResidence) * rate;
   return incomeRate + flatRate;
 }
 
@@ -823,6 +922,7 @@ function calculate(){
   const income = incomeRows.reduce((s, r) => s + r.months.reduce((ss, v) => ss + (Number(v)||0), 0), 0);
   const fixedCostMonthly = fixedRows.reduce((s, r) => s + (Number(r.amount)||0), 0);
   const type = document.getElementById("employType").value;
+  const prefecture = document.getElementById("prefecture").value;
   const area = document.getElementById("resultArea");
 
   if(!income || income <= 0){
@@ -852,7 +952,7 @@ function calculate(){
 
   const basicDeductionResidenceTax = 430_000;
   const taxableResidence = Math.max(0, salaryIncome - socialInsurance - basicDeductionResidenceTax);
-  const totalResidenceTax = residenceTax(taxableResidence);
+  const totalResidenceTax = residenceTax(taxableResidence, prefecture);
 
   const totalBurden = totalIncomeTax + totalResidenceTax + socialInsurance;
   const monthlySaving = totalBurden / 12;
@@ -892,10 +992,10 @@ function calculate(){
         <td class="value">${yen(totalIncomeTax)}</td>
       </tr>
       <tr>
-        <td class="label">住民税(所得割+均等割)
+        <td class="label">住民税(${prefecture} ・ 所得割+均等割)
           <details>
             <summary></summary>
-            <p>住民税は前年の所得をもとに翌年課税されます。所得割は課税所得の約10%、均等割は自治体ごとにおおよそ5,000円前後です。</p>
+            <p>住民税は前年の所得をもとに翌年課税されます。所得割は課税所得のおよそ10%、均等割は全国標準でおよそ5,000円/年です。一部の都道府県では森林保全等を目的とした超過課税が上乗せされる場合があり、${prefecture}については${(PREFECTURE_TAX_DATA[prefecture]||{}).confirmed ? '本ツールで確認済みの概算値を反映しています。' : '超過課税の有無を本ツールでは確認できていないため、全国標準額で計算しています。'}</p>
           </details>
         </td>
         <td class="value">${yen(totalResidenceTax)}</td>
@@ -931,6 +1031,7 @@ function calculate(){
 }
 
 /* ===== 初期化 ===== */
+populatePrefectureSelect();
 addIncomeRow("");
 addFixedRow("家賃", "");
 addFixedRow("光熱費", "");
